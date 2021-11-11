@@ -44,6 +44,8 @@ class ChatConsumer(JsonWebsocketConsumer):
     def receive_message(self, event):
         self.send_json(event)
 
-# TODO: Групповые сообщения
 # TODO: личные сообщения
+
+
+# TODO: Групповые сообщения
 # TODO: добавить сохранение сообщений
