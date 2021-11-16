@@ -23,7 +23,7 @@ class TokenWithUsernameObtainPairSerializer(TokenObtainPairSerializer):
         return token
 
 
-class ListUserViewSerializer(ModelSerializer):
+class UserSerializer(ModelSerializer):
     class Meta:
         model = User
         fields = ('id', 'username')

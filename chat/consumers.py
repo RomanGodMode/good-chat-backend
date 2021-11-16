@@ -3,10 +3,13 @@ from typing import Callable, Dict
 from asgiref.sync import async_to_sync
 from channels.generic.websocket import JsonWebsocketConsumer
 
+from chat.serializers import DialogMessageSerializer
+
 
 class ChatConsumer(JsonWebsocketConsumer):
 
     def connect(self):
+        # TODO: коннектить чела только к диалогам которые у него есть
         async_to_sync(self.channel_layer.group_add)('group_name', self.channel_name)
         self.accept()
 
@@ -26,14 +29,22 @@ class ChatConsumer(JsonWebsocketConsumer):
 
     # серверные события
     def send_message(self, data: dict):
+        data = {
+            'sender': self.scope['user'].id,
+            'text': data['text'],
+            'dialog': data['dialog']
+        }
+        serializer = DialogMessageSerializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        message = serializer.data
+        print(f'{data=}')
+
         async_to_sync(self.channel_layer.group_send)(
             'group_name',
             {
                 'type': 'receive_message',
-                'message': {
-                    'user_id': 1,
-                    'text': data['text']
-                }
+                'message': message
             }
         )
 
@@ -43,9 +54,3 @@ class ChatConsumer(JsonWebsocketConsumer):
     # клиентские события
     def receive_message(self, event):
         self.send_json(event)
-
-# TODO: личные сообщения
-
-
-# TODO: Групповые сообщения
-# TODO: добавить сохранение сообщений
