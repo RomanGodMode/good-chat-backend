@@ -12,9 +12,6 @@ class DialogMessageSerializer(ModelSerializer):
     class Meta:
         model = DialogMessage
         fields = ('sender', 'dialog', 'text', 'id', 'sent_at')
-        extra_kwargs = {
-            'dialog': {'write_only': True}
-        }
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)

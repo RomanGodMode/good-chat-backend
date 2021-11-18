@@ -11,7 +11,12 @@ class RegisterUserSerializer(ModelSerializer):
         model = User
         fields = ('id', 'username', 'password')
         read_only_fields = ('id',)
-        write_only_fields = ('password',)
+        extra_kwargs = {
+            'password': {'write_only': True}
+        }
+
+    def create(self, validated_data):
+        return User.objects.create_user(username=validated_data['username'], password=validated_data['password'])
 
 
 class TokenWithUsernameObtainPairSerializer(TokenObtainPairSerializer):
