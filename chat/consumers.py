@@ -34,12 +34,17 @@ class ChatConsumer(JsonWebsocketConsumer):
     def load_messages(self, data: dict):
         dialog_id = data['dialog']
         page = data['page']
-        # TODO: Подумать про батчинг или коуплинг, ну ты понял
-
-        # TODO: возможность создать группу
-        # TODO: возможность добавить в группу (ws)
 
         # TODO: обрабатывать новые сообщения в группе (гига ws перестройка)
+
+        # TODO: проверить сортировку
+        # TODO: возможность добавить в группу (ws)
+        #
+
+        # TODO: Подумать про батчинг или коуплинг, ну ты понял
+        # самое простое что можно сделать это тупа через груп by по sent_at и sender_id
+
+        # TODO: ws middleware который ловит исключения
 
         messages = DialogMessage.objects.filter(dialog_id=dialog_id)
         paginator = Paginator(messages, settings.CHAT_PAGE_SIZE)

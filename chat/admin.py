@@ -1,7 +1,6 @@
-from django.contrib import admin
 from django.contrib.admin import ModelAdmin, register
 
-from chat.models import Dialog, DialogMessage
+from chat.models import Dialog, DialogMessage, ChatGroup
 
 
 @register(Dialog)
@@ -11,4 +10,9 @@ class DialogAdmin(ModelAdmin):
 
 @register(DialogMessage)
 class DialogMessageAdmin(ModelAdmin):
+    pass
+
+
+@register(ChatGroup)
+class DialogAdmin(ModelAdmin):
     pass
