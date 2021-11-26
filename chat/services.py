@@ -30,7 +30,6 @@ class ChatService:
             last_message_sent_moment = opt(chat, 'last_message.sent_at')
             if last_message_sent_moment:
                 return max(parse_moment(chat['created_at']), parse_moment(last_message_sent_moment))
-
             return parse_moment(chat['created_at'])
 
         return sorted(
@@ -38,7 +37,8 @@ class ChatService:
                 MyDialogsSerializer(self.get_my_dialogs(me), many=True).data,
                 ChatGroupSerializer(self.get_my_groups(me), many=True).data
             ),
-            key=chat_sort_key
+            key=chat_sort_key,
+            reverse=True
         )
 
 

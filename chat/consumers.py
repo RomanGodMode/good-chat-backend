@@ -3,18 +3,39 @@ from typing import Callable, Dict
 from asgiref.sync import async_to_sync
 from channels.generic.websocket import JsonWebsocketConsumer
 from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
-from django.db.models import Q
 
-from chat.models import Dialog, DialogMessage
-from chat.serializers import DialogMessageSerializer
+from chat.models import DialogMessage, GroupMessage, Dialog
+from chat.serializers import DialogMessageSerializer, GroupMessageSerializer, InitiateDialogSerializer
+from chat.services import chat_service
 from chat_backend import settings
 
 
 class ChatConsumer(JsonWebsocketConsumer):
 
+    def subscribe_for_dialog(self, dialog_id: int, channel_name: str = None):
+        group_name = f'dialog-{dialog_id}'
+        async_to_sync(self.channel_layer.group_add)(group_name, channel_name if channel_name else self.channel_name)
+        self.groups.append(group_name)
+
+    def subscribe_for_group(self, group_id: int):
+        group_name = f'group-{group_id}'
+        async_to_sync(self.channel_layer.group_add)(group_name, self.channel_name)
+        self.groups.append(group_name)
+
+    @property
+    def channel_name(self):
+        return f'user-{self.scope["user"].id}'
+
+    @channel_name.setter
+    def channel_name(self, name):
+        pass
+
     def connect(self):
-        for dialog in Dialog.objects.filter(Q(initiator=self.scope['user'].id) | Q(answerer=self.scope['user'].id)):
-            async_to_sync(self.channel_layer.group_add)(f'dialog-{dialog.id}', self.channel_name)
+        for dialog in chat_service.get_my_dialogs(me=self.scope['user']):
+            self.subscribe_for_dialog(dialog.id)
+
+        for group in chat_service.get_my_groups(me=self.scope['user']):
+            self.subscribe_for_group(group.id)
 
         self.accept()
 
@@ -24,7 +45,9 @@ class ChatConsumer(JsonWebsocketConsumer):
         events: Dict[str, Callable[[dict], None]] = {
             'load_messages': self.load_messages,
             'send_message': self.send_message,
-            'delete_message': self.delete_message
+            'delete_message': self.delete_message,
+            'subscribe_for_new_dialog': self.subscribe_for_new_dialog,
+            'initiate_dialog': self.initiate_dialog
         }
         event = events.get(event_type)
         if event:
@@ -32,12 +55,12 @@ class ChatConsumer(JsonWebsocketConsumer):
 
     # серверные события
     def load_messages(self, data: dict):
-        dialog_id = data['dialog']
         page = data['page']
 
-        # TODO: обрабатывать новые сообщения в группе (гига ws перестройка)
+        # fixme можно вкинуть только dialog_id | group_id
+        dialog_id = data.get('dialog', None)
+        group_id = data.get('group', None)
 
-        # TODO: проверить сортировку
         # TODO: возможность добавить в группу (ws)
         #
 
@@ -46,7 +69,11 @@ class ChatConsumer(JsonWebsocketConsumer):
 
         # TODO: ws middleware который ловит исключения
 
-        messages = DialogMessage.objects.filter(dialog_id=dialog_id)
+        if dialog_id:
+            messages = DialogMessage.objects.filter(dialog_id=dialog_id)
+        else:
+            messages = GroupMessage.objects.filter(group_id=group_id)
+
         paginator = Paginator(messages, settings.CHAT_PAGE_SIZE)
 
         try:
@@ -58,38 +85,76 @@ class ChatConsumer(JsonWebsocketConsumer):
             page = paginator.num_pages
             messages = paginator.page(page)
 
+        if dialog_id:
+            messages = DialogMessageSerializer(messages, many=True).data
+        else:
+            messages = GroupMessageSerializer(messages, many=True).data
+
         self.send_json({
             'type': 'loaded_messages',
-            'messages': DialogMessageSerializer(messages, many=True).data,
+            'messages': messages,
             'page': page,
             'total_pages': paginator.num_pages
         })
 
     def send_message(self, data: dict):
-        data = {
+        message = {
             'sender': self.scope['user'].id,
-            'text': data['text'],
-            'dialog': data['dialog']
+            'text': data['text']
         }
-        serializer = DialogMessageSerializer(data=data)
+
+        if data.get('dialog'):
+            dialog = Dialog.objects.get(id=data['dialog'])
+            if not dialog.messages.exists():
+                self.subscribe_for_dialog(data['dialog'], f'user-{dialog.answerer.id}')
+            serializer = DialogMessageSerializer(data={**message, 'dialog': data['dialog']})
+        else:
+            serializer = GroupMessageSerializer(data={**message, 'group': data['group']})
+
         serializer.is_valid(raise_exception=True)
         serializer.save()
         message = serializer.data
 
+        if data.get('dialog'):
+            group_name = f'dialog-{message["dialog"]}'
+        else:
+            group_name = f'group-{message["group"]}'
+
         async_to_sync(self.channel_layer.group_send)(
-            f'dialog-{data["dialog"]}',
+            group_name,
             {
                 'type': 'receive_message',
                 'message': message
             }
         )
 
+    def initiate_dialog(self, data: dict):
+        serializer = InitiateDialogSerializer(data=data['dialog'], context={'user': self.scope['user']})
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        self.subscribe_for_dialog(serializer.data['id'])
+
+        self.send_json({
+            'type': 'initiate_dialog_success',
+            'created_dialog': serializer.data
+        })
+
+    def subscribe_for_new_dialog(self, data: dict):
+        self.subscribe_for_dialog(data["dialog"])
+
     def delete_message(self, data: dict):
-        print('УДОЛЕНИЕ')
+        print('УДОЛЕНИЕ', data)
 
     # клиентские события
     def receive_message(self, event):
         self.send_json(event)
 
     def loaded_messages(self, event):
+        self.send_json(event)
+
+    def initiate_dialog_success(self, event):
+        self.send_json(event)
+
+    def new_dialog(self, event):
         self.send_json(event)

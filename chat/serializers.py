@@ -19,7 +19,9 @@ class InitiateDialogSerializer(ModelSerializer):
 
     def create(self, validated_data):
         try:
-            validated_data['initiator'] = self.context['request'].user
+            request = self.context.get('request', None)
+            validated_data['initiator'] = request.user if request else self.context['user']
+
             return super().create(validated_data)
         except IntegrityError as e:
             message = e.args[0]
