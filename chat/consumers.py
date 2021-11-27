@@ -4,8 +4,9 @@ from asgiref.sync import async_to_sync
 from channels.generic.websocket import JsonWebsocketConsumer
 from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
 
+from chat.chat_consumer_externals import external_groups
 from chat.models import DialogMessage, GroupMessage, Dialog
-from chat.serializers import DialogMessageSerializer, GroupMessageSerializer, InitiateDialogSerializer
+from chat.serializers import DialogMessageSerializer, GroupMessageSerializer
 from chat.services import chat_service
 from chat_backend import settings
 
@@ -39,15 +40,19 @@ class ChatConsumer(JsonWebsocketConsumer):
 
         self.accept()
 
+    def disconnect(self, code):
+        for external_group in external_groups:
+            async_to_sync(self.channel_layer.group_discard)(external_group, self.channel_name)
+
+        super().disconnect(code)
+
     def receive_json(self, content, **kwargs):
         event_type = content.pop('type')
 
         events: Dict[str, Callable[[dict], None]] = {
             'load_messages': self.load_messages,
             'send_message': self.send_message,
-            'delete_message': self.delete_message,
-            'subscribe_for_new_dialog': self.subscribe_for_new_dialog,
-            'initiate_dialog': self.initiate_dialog
+            'delete_message': self.delete_message
         }
         event = events.get(event_type)
         if event:
@@ -57,11 +62,11 @@ class ChatConsumer(JsonWebsocketConsumer):
     def load_messages(self, data: dict):
         page = data['page']
 
-        # fixme можно вкинуть только dialog_id | group_id
         dialog_id = data.get('dialog', None)
         group_id = data.get('group', None)
 
         # TODO: возможность добавить в группу (ws)
+
         #
 
         # TODO: Подумать про батчинг или коуплинг, ну ты понял
@@ -128,18 +133,6 @@ class ChatConsumer(JsonWebsocketConsumer):
             }
         )
 
-    def initiate_dialog(self, data: dict):
-        serializer = InitiateDialogSerializer(data=data['dialog'], context={'user': self.scope['user']})
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-
-        self.subscribe_for_dialog(serializer.data['id'])
-
-        self.send_json({
-            'type': 'initiate_dialog_success',
-            'created_dialog': serializer.data
-        })
-
     def subscribe_for_new_dialog(self, data: dict):
         self.subscribe_for_dialog(data["dialog"])
 
@@ -151,9 +144,6 @@ class ChatConsumer(JsonWebsocketConsumer):
         self.send_json(event)
 
     def loaded_messages(self, event):
-        self.send_json(event)
-
-    def initiate_dialog_success(self, event):
         self.send_json(event)
 
     def new_dialog(self, event):

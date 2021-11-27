@@ -5,10 +5,10 @@ from time import strptime
 from typing import Union
 
 from django.contrib.auth.models import User
-from django.db.models import Q
+from django.db.models import Q, Exists
 
 from chat.functions import opt
-from chat.models import Dialog, ChatGroup
+from chat.models import Dialog, ChatGroup, DialogMessage
 from chat.serializers import MyDialogsSerializer, ChatGroupSerializer
 from chat_backend import settings
 
@@ -20,7 +20,7 @@ def parse_moment(s: str):
 class ChatService:
 
     def get_my_dialogs(self, me: User):
-        return Dialog.objects.filter(Q(initiator=me) | Q(answerer=me))
+        return Dialog.objects.filter(Q(initiator=me) | Q(answerer=me) & Exists(DialogMessage.objects.all()))
 
     def get_my_groups(self, me: User):
         return me.chat_groups.all()

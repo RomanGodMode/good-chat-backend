@@ -4,12 +4,13 @@ from rest_framework.exceptions import NotAcceptable
 from rest_framework.fields import SerializerMethodField
 from rest_framework.serializers import ModelSerializer
 
+from chat.chat_consumer_externals import subscribe_for_dialog
 from chat.models import Dialog, DialogMessage, ChatGroup, GroupMessage
 from users.mixins import GetUserSerializerMixin
 from users.serializers import UserSerializer
 
 
-class InitiateDialogSerializer(ModelSerializer):
+class InitiateDialogSerializer(ModelSerializer, GetUserSerializerMixin):
     initiator = UserSerializer(read_only=True)
 
     class Meta:
@@ -22,7 +23,21 @@ class InitiateDialogSerializer(ModelSerializer):
             request = self.context.get('request', None)
             validated_data['initiator'] = request.user if request else self.context['user']
 
-            return super().create(validated_data)
+            already_created_dialog = Dialog.objects.filter(answerer=self.get_user(), initiator_id=validated_data['answerer']).first()
+            if already_created_dialog:
+                subscribe_for_dialog(
+                    dialog_id=already_created_dialog.id,
+                    channel_name=f'user-{self.get_user().id}'
+                )
+                return already_created_dialog
+
+            instance = Dialog.objects.create(**validated_data)
+            subscribe_for_dialog(
+                dialog_id=instance.id,
+                channel_name=f'user-{self.get_user().id}'
+            )
+            return instance
+
         except IntegrityError as e:
             message = e.args[0]
             if 'UNIQUE constraint' in message:

@@ -1,9 +1,9 @@
-from rest_framework import generics
+from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from chat.models import Dialog
-from chat.serializers import MyDialogsSerializer, InitiateDialogSerializer, CreateChatGroupSerializer, ChatGroupSerializer
+from chat.serializers import MyDialogsSerializer, CreateChatGroupSerializer, InitiateDialogSerializer
 from chat.services import chat_service
 
 
@@ -21,6 +21,11 @@ class DetailDialogView(generics.RetrieveAPIView):
 
     def get_queryset(self):
         return chat_service.get_my_dialogs(self.request.user)
+
+
+class InitiateDialogView(generics.CreateAPIView):
+    serializer_class = InitiateDialogSerializer
+    permission_classes = (IsAuthenticated,)
 
 
 class CreateChatGroupView(generics.CreateAPIView):
