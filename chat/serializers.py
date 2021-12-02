@@ -5,7 +5,7 @@ from rest_framework.fields import SerializerMethodField
 from rest_framework.serializers import ModelSerializer
 
 from chat.chat_consumer_externals import subscribe_for_dialog
-from chat.models import Dialog, DialogMessage, ChatGroup, GroupMessage
+from chat.models import Dialog, DialogMessage, ChatGroup, GroupMessage, ChatGroupMember
 from users.mixins import GetUserSerializerMixin
 from users.serializers import UserSerializer
 
@@ -72,10 +72,23 @@ class CreateChatGroupSerializer(ModelSerializer, GetUserSerializerMixin):
         return representation
 
 
+class AddToChatGroupSerializer(ModelSerializer):
+    class Meta:
+        model = ChatGroupMember
+        fields = ('user', 'group', 'joined_at')
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        representation['group'] = ChatGroupSerializer(ChatGroup.objects.get(id=representation['group'])).data
+
+        return representation
+
+
 class DialogMessageSerializer(ModelSerializer):
     class Meta:
         model = DialogMessage
-        fields = ('sender', 'dialog', 'text', 'id', 'sent_at')
+        fields = ('sender', 'dialog', 'text', 'id', 'sent_at', 'users_that_read')
+        read_only_fields = ('users_that_read',)
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
@@ -87,7 +100,8 @@ class DialogMessageSerializer(ModelSerializer):
 class GroupMessageSerializer(ModelSerializer):
     class Meta:
         model = GroupMessage
-        fields = ('sender', 'group', 'text', 'id', 'sent_at')
+        fields = ('sender', 'group', 'text', 'id', 'sent_at', 'users_that_read')
+        read_only_fields = ('users_that_read',)
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)

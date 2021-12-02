@@ -2,11 +2,12 @@ from typing import Callable, Dict
 
 from asgiref.sync import async_to_sync
 from channels.generic.websocket import JsonWebsocketConsumer
+from django.contrib.auth.models import User
 from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
 
 from chat.chat_consumer_externals import external_groups
-from chat.models import DialogMessage, GroupMessage, Dialog
-from chat.serializers import DialogMessageSerializer, GroupMessageSerializer
+from chat.models import DialogMessage, GroupMessage, Dialog, ChatGroup
+from chat.serializers import DialogMessageSerializer, GroupMessageSerializer, AddToChatGroupSerializer
 from chat.services import chat_service
 from chat_backend import settings
 
@@ -18,9 +19,9 @@ class ChatConsumer(JsonWebsocketConsumer):
         async_to_sync(self.channel_layer.group_add)(group_name, channel_name if channel_name else self.channel_name)
         self.groups.append(group_name)
 
-    def subscribe_for_group(self, group_id: int):
+    def subscribe_for_group(self, group_id: int, channel_name: str = None):
         group_name = f'group-{group_id}'
-        async_to_sync(self.channel_layer.group_add)(group_name, self.channel_name)
+        async_to_sync(self.channel_layer.group_add)(group_name, channel_name if channel_name else self.channel_name)
         self.groups.append(group_name)
 
     @property
@@ -52,7 +53,9 @@ class ChatConsumer(JsonWebsocketConsumer):
         events: Dict[str, Callable[[dict], None]] = {
             'load_messages': self.load_messages,
             'send_message': self.send_message,
-            'delete_message': self.delete_message
+            'delete_message': self.delete_message,
+            'add_to_group': self.add_to_group,
+            'mark_as_read': self.mark_as_read
         }
         event = events.get(event_type)
         if event:
@@ -65,12 +68,7 @@ class ChatConsumer(JsonWebsocketConsumer):
         dialog_id = data.get('dialog', None)
         group_id = data.get('group', None)
 
-        # TODO: возможность добавить в группу (ws)
-
-        #
-
-        # TODO: Подумать про батчинг или коуплинг, ну ты понял
-        # самое простое что можно сделать это тупа через груп by по sent_at и sender_id
+        # TODO: чел печатает
 
         # TODO: ws middleware который ловит исключения
 
@@ -82,22 +80,54 @@ class ChatConsumer(JsonWebsocketConsumer):
         paginator = Paginator(messages, settings.CHAT_PAGE_SIZE)
 
         try:
-            messages = paginator.page(page)
+            paginated_messages = paginator.page(page)
         except PageNotAnInteger:
             page = 1
-            messages = paginator.page(page)
+            paginated_messages = paginator.page(page)
         except EmptyPage:
             page = paginator.num_pages
-            messages = paginator.page(page)
+            paginated_messages = paginator.page(page)
 
         if dialog_id:
-            messages = DialogMessageSerializer(messages, many=True).data
+            serialized_messages = DialogMessageSerializer(paginated_messages, many=True).data
         else:
-            messages = GroupMessageSerializer(messages, many=True).data
+            serialized_messages = GroupMessageSerializer(paginated_messages, many=True).data
+
+        user: User = self.scope['user']
+
+        now_read_messages = messages.exclude(users_that_read=user)
+        print(now_read_messages)
+        if now_read_messages.exists():  # если есть хоть одно сообщение не от этого юзера значит
+            if dialog_id:
+                user.read_dialog_messages.add(*messages)
+                user.save()
+            else:
+                user.read_group_messages.add(*messages)
+                user.save()
+
+            if dialog_id:
+                group_name = f'dialog-{dialog_id}'
+                event = {
+                    'type': 'read_messages',
+                    'dialog_id': dialog_id,
+                    'user_id': user.id
+                }
+            else:
+                group_name = f'group-{group_id}'
+                event = {
+                    'type': 'read_messages',
+                    'group_id': group_id,
+                    'user_id': user.id
+                }
+
+            async_to_sync(self.channel_layer.group_send)(
+                group_name,
+                event
+            )
 
         self.send_json({
             'type': 'loaded_messages',
-            'messages': messages,
+            'messages': serialized_messages,
             'page': page,
             'total_pages': paginator.num_pages
         })
@@ -133,8 +163,55 @@ class ChatConsumer(JsonWebsocketConsumer):
             }
         )
 
-    def subscribe_for_new_dialog(self, data: dict):
-        self.subscribe_for_dialog(data["dialog"])
+    def add_to_group(self, data: dict):
+        serializer = AddToChatGroupSerializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        self.subscribe_for_group(data['group'], f'user-{data["user"]}')
+
+        async_to_sync(self.channel_layer.group_send)(
+            f'group-{data["group"]}',
+            {
+                'type': 'added_to_group',
+                'group': serializer.data['group'],
+                'user_id': data['user']
+            }
+        )
+
+    def mark_as_read(self, data: dict):
+        dialog_id = data.get('dialog_id')
+        group_id = data.get('group_id')
+        user: User = self.scope['user']
+
+        if dialog_id:
+            messages = Dialog.objects.get(id=dialog_id).messages.all()
+            user.read_dialog_messages.add(*messages)
+            user.save()
+        else:
+            messages = ChatGroup.objects.get(id=group_id).messages.all()
+            user.read_group_messages.add(*messages)
+            user.save()
+
+        if dialog_id:
+            group_name = f'dialog-{dialog_id}'
+            event = {
+                'type': 'read_messages',
+                'dialog_id': dialog_id,
+                'user_id': user.id
+            }
+        else:
+            group_name = f'group-{group_id}'
+            event = {
+                'type': 'read_messages',
+                'group_id': group_id,
+                'user_id': user.id
+            }
+
+        async_to_sync(self.channel_layer.group_send)(
+            group_name,
+            event
+        )
 
     def delete_message(self, data: dict):
         print('УДОЛЕНИЕ', data)
@@ -146,5 +223,8 @@ class ChatConsumer(JsonWebsocketConsumer):
     def loaded_messages(self, event):
         self.send_json(event)
 
-    def new_dialog(self, event):
+    def added_to_group(self, event):
+        self.send_json(event)
+
+    def read_messages(self, event):
         self.send_json(event)

@@ -1,9 +1,10 @@
+from django.contrib.auth.models import User
 from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from chat.models import Dialog
-from chat.serializers import MyDialogsSerializer, CreateChatGroupSerializer, InitiateDialogSerializer
+from chat.models import Dialog, ChatGroup
+from chat.serializers import MyDialogsSerializer, CreateChatGroupSerializer, InitiateDialogSerializer, ChatGroupSerializer
 from chat.services import chat_service
 
 
@@ -39,3 +40,11 @@ class ChatsListView(generics.ListAPIView):
     def list(self, request, *args, **kwargs):
         chats = chat_service.get_my_chats(self.request.user)
         return Response(chats)
+
+
+class CreatedGroupsView(generics.ListAPIView):
+    permission_classes = (IsAuthenticated,)
+    serializer_class = ChatGroupSerializer
+
+    def get_queryset(self):
+        return self.request.user.created_groups.all()

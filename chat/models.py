@@ -24,7 +24,7 @@ class ChatGroup(models.Model):
         unique_together = ('title', 'creator')
 
     title = models.CharField(verbose_name='Название группы', validators=[MinLengthValidator(3)], max_length=50)
-    creator = models.ForeignKey(User, verbose_name='Создатель группы', on_delete=CASCADE)
+    creator = models.ForeignKey(User, verbose_name='Создатель группы', on_delete=CASCADE, related_name='created_groups')
 
     members = models.ManyToManyField(User, verbose_name='Участники группы', through='ChatGroupMember', related_name='chat_groups')
     created_at = models.DateTimeField(verbose_name='Момент создания группы', auto_now_add=True)
@@ -34,6 +34,7 @@ class ChatGroupMember(models.Model):
     class Meta:
         verbose_name = 'Участник группы'
         verbose_name_plural = 'Участники группы'
+        unique_together = ('user', 'group')
 
     user = models.ForeignKey(User, verbose_name='Пользователь', on_delete=CASCADE)
     group = models.ForeignKey(ChatGroup, verbose_name='Группа', on_delete=CASCADE)
@@ -58,6 +59,7 @@ class DialogMessage(AbstractMessage):
         verbose_name_plural = 'Сообщения диалогов'
 
     dialog = models.ForeignKey(Dialog, verbose_name='Диалог', on_delete=CASCADE, related_name='messages')
+    users_that_read = models.ManyToManyField(User, verbose_name='Пользователи прочитавшие сообщение', related_name='read_dialog_messages')
 
 
 class GroupMessage(AbstractMessage):
@@ -66,3 +68,4 @@ class GroupMessage(AbstractMessage):
         verbose_name_plural = 'Сообщения групп'
 
     group = models.ForeignKey(ChatGroup, verbose_name='Группа', on_delete=CASCADE, related_name='messages')
+    users_that_read = models.ManyToManyField(User, verbose_name='Пользователи прочитавшие сообщение', related_name='read_group_messages')
