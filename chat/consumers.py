@@ -55,11 +55,16 @@ class ChatConsumer(JsonWebsocketConsumer):
             'send_message': self.send_message,
             'delete_message': self.delete_message,
             'add_to_group': self.add_to_group,
-            'mark_as_read': self.mark_as_read
+            'mark_as_read': self.mark_as_read,
+            'start_typing': self.start_typing,
+            'stop_typing': self.stop_typing
         }
         event = events.get(event_type)
         if event:
-            event(content)
+            try:
+                event(content)
+            except Exception as e:
+                self.send_json({'type': 'error', 'error': e.__dict__})
 
     # серверные события
     def load_messages(self, data: dict):
@@ -67,10 +72,6 @@ class ChatConsumer(JsonWebsocketConsumer):
 
         dialog_id = data.get('dialog', None)
         group_id = data.get('group', None)
-
-        # TODO: чел печатает
-
-        # TODO: ws middleware который ловит исключения
 
         if dialog_id:
             messages = DialogMessage.objects.filter(dialog_id=dialog_id)
@@ -96,7 +97,6 @@ class ChatConsumer(JsonWebsocketConsumer):
         user: User = self.scope['user']
 
         now_read_messages = messages.exclude(users_that_read=user)
-        print(now_read_messages)
         if now_read_messages.exists():  # если есть хоть одно сообщение не от этого юзера значит
             if dialog_id:
                 user.read_dialog_messages.add(*messages)
@@ -213,6 +213,56 @@ class ChatConsumer(JsonWebsocketConsumer):
             event
         )
 
+    def start_typing(self, data: dict):
+        dialog_id = data.get('dialog')
+        group_id = data.get('group')
+        user: User = self.scope['user']
+
+        if dialog_id:
+            group_name = f'dialog-{dialog_id}'
+            event = {
+                'type': 'someone_start_typing',
+                'dialog': dialog_id,
+                'user': user.id
+            }
+        else:
+            group_name = f'group-{group_id}'
+            event = {
+                'type': 'someone_start_typing',
+                'group': group_id,
+                'user': user.id
+            }
+
+        async_to_sync(self.channel_layer.group_send)(
+            group_name,
+            event
+        )
+
+    def stop_typing(self, data: dict):
+        dialog_id = data.get('dialog')
+        group_id = data.get('group')
+        user: User = self.scope['user']
+
+        if dialog_id:
+            group_name = f'dialog-{dialog_id}'
+            event = {
+                'type': 'someone_stop_typing',
+                'dialog': dialog_id,
+                'user': user.id
+            }
+        else:
+            group_name = f'group-{group_id}'
+            event = {
+                'type': 'someone_stop_typing',
+                'group': group_id,
+                'user': user.id
+            }
+
+        async_to_sync(self.channel_layer.group_send)(
+            group_name,
+            event
+        )
+
     def delete_message(self, data: dict):
         print('УДОЛЕНИЕ', data)
 
@@ -227,4 +277,10 @@ class ChatConsumer(JsonWebsocketConsumer):
         self.send_json(event)
 
     def read_messages(self, event):
+        self.send_json(event)
+
+    def someone_start_typing(self, event):
+        self.send_json(event)
+
+    def someone_stop_typing(self, event):
         self.send_json(event)

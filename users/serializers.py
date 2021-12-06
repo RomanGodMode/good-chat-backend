@@ -23,7 +23,6 @@ class TokenWithUsernameObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod
     def get_token(cls, user):
         token = super().get_token(user)
-        print(f'{user=}')
         token['name'] = user.username
         return token
 

@@ -1,5 +1,4 @@
 from channels.db import database_sync_to_async
-from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser, User
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.tokens import UntypedToken
@@ -38,5 +37,5 @@ class JwtAuthMiddleware(BaseMiddleware):
         return await super().__call__(scope, receive, send)
 
 
-def JwtAuthMiddlewareStack(inner):
+def WebsocketMiddlewareStack(inner):
     return JwtAuthMiddleware(AuthMiddlewareStack(inner))
