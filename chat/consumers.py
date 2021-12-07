@@ -3,10 +3,11 @@ from typing import Callable, Dict
 from asgiref.sync import async_to_sync
 from channels.generic.websocket import JsonWebsocketConsumer
 from django.contrib.auth.models import User
-from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
+from django.core.paginator import PageNotAnInteger, EmptyPage
 
 from chat.chat_consumer_externals import external_groups
 from chat.models import DialogMessage, GroupMessage, Dialog, ChatGroup
+from chat.paginator import PaginatorWithOffset
 from chat.serializers import DialogMessageSerializer, GroupMessageSerializer, AddToChatGroupSerializer
 from chat.services import chat_service
 from chat_backend import settings
@@ -69,6 +70,7 @@ class ChatConsumer(JsonWebsocketConsumer):
     # серверные события
     def load_messages(self, data: dict):
         page = data['page']
+        shift = data['shift']
 
         dialog_id = data.get('dialog', None)
         group_id = data.get('group', None)
@@ -78,7 +80,7 @@ class ChatConsumer(JsonWebsocketConsumer):
         else:
             messages = GroupMessage.objects.filter(group_id=group_id)
 
-        paginator = Paginator(messages, settings.CHAT_PAGE_SIZE)
+        paginator = PaginatorWithOffset(messages, settings.CHAT_PAGE_SIZE, shift=shift)
 
         try:
             paginated_messages = paginator.page(page)
